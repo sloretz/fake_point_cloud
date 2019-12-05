@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import rclpy
-from rclpy.node import Node
-
+import random
 import struct
 
+import rclpy
+from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs.msg import PointField
 
@@ -28,7 +28,14 @@ def float_range(min_val, max_val, step):
         val += step
 
 
-def xyz_point_fields():
+def xyz_point_cloud():
+    msg = PointCloud2()
+    msg.is_dense = True
+    msg.is_bigendian = True
+    # Unordered point cloud
+    msg.height = 1
+    msg.point_step = 12  # 32bit float x, y, and z
+
     x_field = PointField()
     x_field.name = 'x'
     x_field.offset = 0
@@ -47,19 +54,12 @@ def xyz_point_fields():
     z_field.datatype = PointField.FLOAT32
     z_field.count = 1
 
-    return (x_field, y_field, z_field)
+    msg.fields.extend((x_field, y_field, z_field))
+
+    return msg
 
 
-def uniform_cloud(xs=(-1.0, 1.0), ys=(-1.0, 1.0), zs=(-1.0, 1.0), spacing=0.1):
-    msg = PointCloud2()
-    msg.is_dense = True
-    msg.is_bigendian = True
-    # Unordered point cloud
-    msg.height = 1
-    msg.point_step = 12  # 32bit float x, y, and z
-
-    msg.fields.extend(xyz_point_fields())
-
+def make_uniform_cloud(msg, xs=(-1.0, 1.0), ys=(-1.0, 1.0), zs=(-1.0, 1.0), spacing=0.1):
     min_x, max_x = xs
     min_y, max_y = ys
     min_z, max_z = zs
@@ -75,10 +75,16 @@ def uniform_cloud(xs=(-1.0, 1.0), ys=(-1.0, 1.0), zs=(-1.0, 1.0), spacing=0.1):
                 for b in binary:
                     msg.data.append(b)
 
-    msg.width = round(len(msg.data) / msg.point_step)
-    msg.row_step = len(msg.data)
 
-    return msg
+def make_random_outliers(msg, xs=(-2.0, 2.0), ys=(-2.0, 2.0), zs=(-2.0, 2.0), num=500):
+    for _ in range(500):
+        x = random.uniform(*xs)
+        y = random.uniform(*ys)
+        z = random.uniform(*zs)
+        binary = struct.pack('fff', x, y, z)
+        assert len(binary) == msg.point_step
+        for b in binary:
+            msg.data.append(b)
 
 
 class FakePointCloudPublisher(Node):
@@ -90,7 +96,13 @@ class FakePointCloudPublisher(Node):
         self.timer = self.create_timer(timer_period, self.timer_callback)
 
     def timer_callback(self):
-        msg = uniform_cloud()
+        msg = xyz_point_cloud()
+
+        make_uniform_cloud(msg)
+        make_random_outliers(msg)
+
+        msg.width = round(len(msg.data) / msg.point_step)
+        msg.row_step = len(msg.data)
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "base_link"
         self.publisher_.publish(msg)
